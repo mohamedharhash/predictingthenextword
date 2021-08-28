@@ -1,0 +1,183 @@
+# Prediciting the next word in a sentence using the Text files from the IBM cloud for training 
+
+import numpy as np
+import pandas as pd
+from keras.utils import to_categorical
+from keras.preprocessing.sequence import pad_sequences
+from keras.models import Sequential
+from keras.layers import LSTM, Dense, GRU, Embedding
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+
+
+# This code is to combine all the text files from the IBM cloud
+
+
+
+# filenames = ["/Users/ashrafharhash/Downloads/--1xEI4olJI.txt", "/Users/ashrafharhash/Downloads/Zoological Records.txt"]
+
+# with open("output_file8.txt", "w") as outfile:
+#     for filename in filenames:
+#         with open(filename) as infile:
+#             data = infile.read()
+#             outfile.write(data)
+
+with open('/Users/ashrafharhash/Downloads/--1xEI4olJI.txt', 'r') as file:
+    data = file.read().replace('\n', '')
+
+data = data.lower()
+print(data[0:5000])
+
+data = ''.join(c for c in data if not c.isdigit())
+
+chars = sorted(list(set(data)))
+
+char_to_int = dict((c,i) for i, c in enumerate(chars))
+int_to_char = dict((i,c) for i, c in enumerate(chars))
+
+n_chars= len(data)
+n_vocab= len(chars)
+
+print("total characters in the text; corpus length:",n_chars)
+print("total vocab:", n_vocab)
+
+print(data)
+
+
+import re
+
+def text_cleaner(text):
+    # lower case text
+    newString = text.lower()
+    newString = re.sub(r"'s\b","",newString)
+    # remove punctuations
+    newString = re.sub("[^a-zA-Z]", " ", newString) 
+    long_words=[]
+    # remove short word
+    for i in newString.split():
+        if len(i)>=3:                  
+            long_words.append(i)
+    return (" ".join(long_words)).strip()
+
+# preprocess the text
+data_new = text_cleaner(data)
+
+
+def create_seq(text):
+    length = 30
+    sequences = list()
+    for i in range(length, len(text)):
+        # select sequence of tokens
+        seq = text[i-length:i+1]
+        # store
+        sequences.append(seq)
+    print('Total Sequences: %d' % len(sequences))
+    return sequences
+
+# create sequences   
+sequences = create_seq(data_new)
+
+
+# create a character mapping index
+chars = sorted(list(set(data_new)))
+mapping = dict((c, i) for i, c in enumerate(chars))
+
+def encode_seq(seq):
+    sequences = list()
+    for line in seq:
+        # integer encode line
+        encoded_seq = [mapping[char] for char in line]
+        # store
+        sequences.append(encoded_seq)
+    return sequences
+
+# encode the sequences
+sequences = encode_seq(sequences)
+
+from sklearn.model_selection import train_test_split
+
+# vocabulary size
+vocab = len(mapping)
+sequences = np.array(sequences)
+# create X and y
+X, y = sequences[:,:-1], sequences[:,-1]
+# one hot encode y
+y = to_categorical(y, num_classes=vocab)
+# create train and validation sets
+X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.1, random_state=42)
+
+print('Train shape:', X_tr.shape, 'Val shape:', X_val.shape)
+
+
+# define model
+model = Sequential()
+model.add(Embedding(vocab, 50, input_length=30, trainable=True))
+model.add(GRU(150, recurrent_dropout=0.3, dropout=0.3))
+model.add(Dense(vocab, activation='softmax'))
+print(model.summary())
+
+
+# compile the model
+model.compile(loss='categorical_crossentropy', metrics=['acc'], optimizer='adam')
+# fit the model
+model.fit(X_tr, y_tr, epochs=10, verbose=2, validation_data=(X_val, y_val))
+
+
+# generate a sequence of characters with a language model
+def generate_seq(model, mapping, seq_length, seed_text, n_chars):
+    in_text = seed_text
+    # generate a fixed number of characters
+    for _ in range(n_chars):
+        # encode the characters as integers
+        encoded = [mapping[char] for char in in_text]
+        # truncate sequences to a fixed length
+        encoded = pad_sequences([encoded], maxlen=seq_length, truncating='pre')
+        # predict character
+        yhat = model.predict_classes(encoded, verbose=0)
+        # reverse map integer to character
+        out_char = ''
+        for char, index in mapping.items():
+            if index == yhat:
+                out_char = char
+                break
+        # append to input
+        in_text += char
+    return in_text
+    
+    
+    # Import required libraries
+import torch
+from pytorch_transformers import GPT2Tokenizer, GPT2LMHeadModel
+
+# Load pre-trained model tokenizer (vocabulary)
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+
+# Encode a text inputs
+text = " I cant feel my  "
+indexed_tokens = tokenizer.encode(text)
+
+# Convert indexed tokens in a PyTorch tensor
+tokens_tensor = torch.tensor([indexed_tokens])
+
+# Load pre-trained model (weights)
+model = GPT2LMHeadModel.from_pretrained('gpt2')
+
+# Set the model in evaluation mode to deactivate the DropOut modules
+model.eval()
+
+# If you have a GPU, put everything on cuda
+#tokens_tensor = tokens_tensor.to('cuda')
+#model.to('cuda')
+
+# Predict all tokens
+with torch.no_grad():
+    outputs = model(tokens_tensor)
+    predictions = outputs[0]
+
+# Get the predicted next sub-word
+predicted_index = torch.argmax(predictions[0, -1, :]).item()
+
+predicted_text = tokenizer.decode(indexed_tokens + [predicted_index])
+
+# Print the predicted word
+print(predicted_text)
+
